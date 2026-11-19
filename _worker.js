@@ -461,7 +461,20 @@ export default {
 								if (response.ok) {
 									订阅内容 = await response.text();
 									if (url.searchParams.has('surge') || ua.includes('surge')) 订阅内容 = Surge订阅配置文件热补丁(订阅内容, url.protocol + '//' + url.host + '/sub?token=' + 订阅TOKEN + '&surge', config_JSON);
-								} else return new Response('订阅转换后端异常：' + response.statusText, { status: response.status });
+								} else {
+									// 仅记录预定义分类；上游正文可能包含回读令牌或节点凭据。
+									const reader = response.body?.getReader();
+									let reason = 'other';
+									try {
+										const { value } = reader ? await reader.read() : {};
+										const prefix = new TextDecoder().decode(value?.subarray(0, 512)).trim();
+										if (/^No nodes were found!/i.test(prefix)) reason = 'no_nodes';
+										else if (/^Invalid request!/i.test(prefix)) reason = 'invalid_request';
+										else if (/^(<!doctype html|<html)/i.test(prefix)) reason = 'html_response';
+									} catch { /* 保留原始 HTTP 状态 */ } finally { reader?.cancel().catch(() => {}); }
+									console.warn(`[sub-converter] status=${response.status} reason=${reason}`);
+									return new Response('订阅转换后端异常：' + response.statusText, { status: response.status });
+								}
 							} catch (error) {
 								return new Response('订阅转换后端异常：' + error.message, { status: 403 });
 							}
